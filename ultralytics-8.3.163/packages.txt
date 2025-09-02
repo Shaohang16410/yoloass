@@ -1,14 +1,10 @@
-libgl1-mesa-glx
+libgl1
 libglib2.0-0
 libsm6
 libxext6
+libxrender1
 libxrender-dev
 libjpeg-dev
 libpng-dev
 libtiff-dev
 python3-tk
-libgl1
-libglib2.0-0
-libsm6
-libxrender1
-libxext6
