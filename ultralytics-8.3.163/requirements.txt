@@ -8,3 +8,4 @@ streamlit
 Pillow
 opencv-python-headless>=4.6.0
 charset-normalizer
+python==3.11.0
