@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import os
 from ultralytics import YOLO
+import torch  # Import torch
 
 # Import the necessary functions from util.py
 from util import get_car, read_license_plate
@@ -15,6 +16,27 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- FIX APPLIED HERE ---
+# Add ultralytics custom classes to safe globals BEFORE loading models
+# This tells PyTorch that these specific custom classes from ultralytics are safe to load.
+try:
+    from ultralytics.nn.tasks import DetectionModel
+    from ultralytics.nn.modules import C2f, Detect, Bottleneck, SPPF  # Add other common ultralytics modules if needed
+
+    torch.serialization.add_safe_globals([
+        DetectionModel,
+        C2f, Detect, Bottleneck, SPPF  # Add other specific modules if your model uses them
+    ])
+    st.info("💡 Added YOLOv8 custom classes to PyTorch safe globals.")
+except ImportError as e:
+    st.warning(
+        f"Could not add all YOLOv8 modules to safe globals (e.g., DetectionModel): {e}. This might be fine if your model doesn't use them, or you might need to install `ultralytics`.")
+except Exception as e:
+    st.warning(f"An unexpected error occurred while adding safe globals: {e}")
+
+
+# --- END OF FIX ---
+
 
 # --- MODEL LOADING ---
 @st.cache_resource
@@ -22,6 +44,8 @@ def load_models(coco_model_file, license_plate_model_file):
     """Loads YOLO models from specified paths."""
     st.info("Loading models, please wait...")
     try:
+        # No change needed here for YOLO, as it internally handles torch.load
+        # but the `add_safe_globals` must be called *before* this function.
         coco_model = YOLO(coco_model_file)
         license_plate_detector = YOLO(license_plate_model_file)
         st.success("✅ Models loaded successfully!")
@@ -40,10 +64,11 @@ def process_frame(image, coco_model, license_plate_detector):
     results_list = []
     annotated_image = image.copy()
 
-    vehicle_results = coco_model(annotated_image)[0]
+    # Make sure to pass the image as a list or directly if YOLO expects it
+    vehicle_results = coco_model(annotated_image, verbose=False)[0]  # Added verbose=False for cleaner output
     vehicles = vehicle_results.boxes.data.tolist()
 
-    lp_results = license_plate_detector(annotated_image)[0]
+    lp_results = license_plate_detector(annotated_image, verbose=False)[0]  # Added verbose=False
     license_plates = lp_results.boxes.data.tolist()
 
     for lp in license_plates:
@@ -57,7 +82,12 @@ def process_frame(image, coco_model, license_plate_detector):
         xcar1, ycar1, xcar2, ycar2, car_score = car
         # --- END OF FIX ---
 
-        crop = annotated_image[int(y1):int(y2), int(x1):int(x2)]
+        # Ensure crop coordinates are valid
+        crop = annotated_image[int(max(0, y1)):int(min(annotated_image.shape[0], y2)),
+        int(max(0, x1)):int(min(annotated_image.shape[1], x2))]
+        if crop.size == 0:  # Check if crop is empty
+            continue
+
         text, ocr_score = read_license_plate(crop)
 
         if text:
@@ -131,11 +161,17 @@ def main():
                         st.write(f"  - OCR Confidence: {res['ocr_score'] * 100:.2f}%")
                 else:
                     st.warning("No license plates detected in the image.")
-    else:
-        # If one or both models are missing, simply show the warning.
-        # The script will end here gracefully without crashing.
-        st.warning("Please upload both model files using the sidebar to continue.")
+        # Ensure temporary files are cleaned up after use if they exist
+        finally:
+        if os.path.exists(coco_model_path):
+            os.remove(coco_model_path)
+        if os.path.exists(license_plate_model_path):
+            os.remove(license_plate_model_path)
 
+else:
+# If one or both models are missing, simply show the warning.
+# The script will end here gracefully without crashing.
+st.warning("Please upload both model files using the sidebar to continue.")
 
 if __name__ == "__main__":
     main()
