@@ -1,13 +1,22 @@
-# util.py (UPDATED with OCR PREPROCESSING)
+# util.py (CORRECTED)
 
 import string
 import easyocr
 import cv2
 import numpy as np
+import streamlit as st  # <-- ADD THIS IMPORT
 
-# Initialize the OCR reader
-reader = easyocr.Reader(['en'], gpu=False)
+# --- REMOVE THE OLD LINE ---
+# reader = easyocr.Reader(['en'], gpu=False)  <-- DELETE THIS
 
+# --- ADD THIS NEW CACHED FUNCTION ---
+@st.cache_resource
+def load_ocr_reader():
+    """Loads the EasyOCR reader into cache."""
+    st.info("Initializing OCR reader... This may take a moment on the first run.")
+    reader = easyocr.Reader(['en'], gpu=False)
+    st.success("✅ OCR reader ready!")
+    return reader
 
 def write_csv(results, output_path):
     """
@@ -24,7 +33,7 @@ def write_csv(results, output_path):
             filename = results[frame_nmr].get('filename', '')
             for car_id in results[frame_nmr].keys():
                 if car_id == 'filename':
-                    continue  # Skip the filename key
+                    continue
 
                 if 'car' in results[frame_nmr][car_id].keys() and \
                    'license_plate' in results[frame_nmr][car_id].keys() and \
@@ -57,26 +66,15 @@ def preprocess_for_ocr(image):
     """
     Applies a series of preprocessing steps to an image to improve OCR accuracy.
     """
-    # 1. Convert to grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    # 2. Apply a slight blur to reduce noise
     blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-
-    # 3. Upscale the image for better character recognition (optional but often helpful)
-    # Target height of 100 pixels is a good starting point
     scale_factor = 100 / blurred.shape[0]
     width = int(blurred.shape[1] * scale_factor)
     height = int(blurred.shape[0] * scale_factor)
     resized = cv2.resize(blurred, (width, height), interpolation=cv2.INTER_CUBIC)
-
-    # 4. Apply CLAHE for contrast enhancement
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced_contrast = clahe.apply(resized)
-
-    # 5. Apply Otsu's thresholding to get a binary image
     _, binary_image = cv2.threshold(enhanced_contrast, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
     return binary_image
 
 
@@ -92,15 +90,17 @@ def read_license_plate(license_plate_crop):
     Read the license plate text from the given cropped image.
     Applies preprocessing before sending the image to the OCR reader.
     """
-    # --- NEW: Apply preprocessing ---
-    processed_plate = preprocess_for_ocr(license_plate_crop)
+    # --- UPDATE THIS PART ---
+    # Get the cached reader instead of using a global variable
+    reader = load_ocr_reader()
+    # --- END OF UPDATE ---
 
+    processed_plate = preprocess_for_ocr(license_plate_crop)
     detections = reader.readtext(processed_plate)
 
     if not detections:
         return None, None
 
-    # Combine text from all detections
     full_text = ""
     total_score = 0
     for bbox, text, score in detections:
@@ -108,8 +108,6 @@ def read_license_plate(license_plate_crop):
         total_score += score
 
     avg_score = total_score / len(detections)
-
-    # Clean text
     cleaned_text = clean_plate_text(full_text)
 
     if len(cleaned_text) >= 3:
@@ -121,18 +119,16 @@ def read_license_plate(license_plate_crop):
 def get_car(license_plate, vehicle_detections):
     """
     Retrieve the vehicle coordinates based on the license plate coordinates.
-    Makes it robust for YOLOv8 detections (6 values: x1,y1,x2,y2,conf,class_id).
     """
     x1, y1, x2, y2, _, _ = license_plate
 
     for detection in vehicle_detections:
-        # YOLOv8 detections: [x1, y1, x2, y2, conf, class_id]
         if len(detection) >= 6:
             xcar1, ycar1, xcar2, ycar2, score, _ = detection
         elif len(detection) == 5:
             xcar1, ycar1, xcar2, ycar2, score = detection
         else:
-            continue  # Skip malformed detection
+            continue
 
         if x1 > xcar1 and y1 > ycar1 and x2 < xcar2 and y2 < ycar2:
             return xcar1, ycar1, xcar2, ycar2, score
