@@ -1,4 +1,4 @@
-ultralytics==8.0.114
+ultralytics
 pandas
 numpy
 scipy
@@ -6,5 +6,5 @@ easyocr
 filterpy
 streamlit
 Pillow
-opencv-python-headless>=4.6.0
+opencv-python-headless
 charset-normalizer
